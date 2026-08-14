@@ -443,15 +443,42 @@ def construct_git_url(repo, filename):
     return _format_url(_host_or_default(repo).raw_file, repo, filename)
 
 
-def get_readme_url(repo):
-    """Returns the location of a readme file"""
+def should_use_git(repo) -> bool:
+    """Returns whether this Addon is installed and updated with git, rather than by downloading a
+    zip of its contents. Addons that the catalog flags as too large to cache in full always are,
+    because downloading all of a large Addon for every update is expensive; the rest only are if
+    the user has asked for it. Note that this says nothing about whether git is actually available:
+    the caller has to check that separately, and fall back to a zip download if it is not."""
 
+    if getattr(repo, "prefer_git", False):
+        return True
+    forced_repos = fci.Preferences().get("force_git_in_repos").split(",")
+    return repo.name in forced_repos
+
+
+def points_at_a_repository(repo) -> bool:
+    """Returns whether this repo's URL is the location of a git repository, rather than of a
+    downloadable archive of its contents. A catalog entry that only provides a zip file has no
+    repository for file locations to be constructed from."""
+
+    return not urlparse(repo.url).path.lower().endswith(".zip")
+
+
+def get_readme_url(repo):
+    """Returns the location of a readme file, or an empty string if there is no repository to
+    construct that location from"""
+
+    if not points_at_a_repository(repo):
+        return ""
     return construct_git_url(repo, "README.md")
 
 
 def get_readme_html_url(repo):
-    """Returns the location of a html file containing readme"""
+    """Returns the location of a html file containing readme, or an empty string if there is no
+    repository to construct that location from"""
 
+    if not points_at_a_repository(repo):
+        return ""
     return _format_url(_host_or_default(repo).blob, repo, "README.md")
 
 
@@ -734,26 +761,31 @@ def run_monitored_subprocess(
 
     collected: List[str] = []
     finished_reading = False
-    while not finished_reading:
-        try:
-            line = lines.get(timeout=0.2)
-        except queue.Empty:
+    try:
+        while not finished_reading:
+            try:
+                line = lines.get(timeout=0.2)
+            except queue.Empty:
+                if _interruption_requested():
+                    raise ProcessInterrupted()
+                continue
+            if line is None:
+                finished_reading = True
+                continue
+            collected.append(line)
+            if line_callback is not None:
+                line_callback(line.rstrip())
             if _interruption_requested():
-                _terminate(process, reader)
                 raise ProcessInterrupted()
-            continue
-        if line is None:
-            finished_reading = True
-            continue
-        collected.append(line)
-        if line_callback is not None:
-            line_callback(line.rstrip())
-        if _interruption_requested():
-            _terminate(process, reader)
-            raise ProcessInterrupted()
+    except BaseException:
+        # Whatever went wrong, including a callback that raised, the process must not be left
+        # running: it holds files open and goes on doing work nobody is waiting for any more
+        _terminate(process, reader)
+        raise
 
     process.wait()
     reader.join()
+    process.stdout.close()
     output = "".join(collected)
     if process.returncode != 0:
         raise subprocess.CalledProcessError(process.returncode, args, output, "")
@@ -772,9 +804,32 @@ def _enqueue_lines(stream, lines: "queue.Queue[Optional[str]]") -> None:
 def _terminate(process: subprocess.Popen, reader: threading.Thread) -> None:
     """Kill a process and wait for its reader thread to drain, so no output thread is left
     running after an interruption."""
-    process.kill()
+    _kill_process_tree(process)
     process.wait()
-    reader.join()
+    # The reader is blocked reading the pipe, and it only reaches the end of it once every process
+    # holding the writing end has gone. A child that outlived its parent can hold it open for a
+    # long time, so this waits briefly and then closes the pipe itself rather than waiting forever.
+    reader.join(timeout=2.0)
+    process.stdout.close()
+    reader.join(timeout=2.0)
+
+
+def _kill_process_tree(process: subprocess.Popen) -> None:
+    """Kill a process along with any children it started. Killing only the process itself leaves
+    its children running, and on Windows they are the ones that do the work for commands such as
+    git clone: they go on downloading, and they keep its output pipe open."""
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass  # Fall through to killing just the process itself
+    process.kill()
 
 
 def process_date_string_to_python_datetime(date_string: str) -> datetime:

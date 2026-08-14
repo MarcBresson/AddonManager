@@ -179,6 +179,16 @@ class Addon:
         self.display_name = self.name
         self.url = url.strip()
         self.relative_cache_path = ""
+
+        # A remote location for a zip of this Addon's contents. This is used for Addons that are
+        # not cached in their entirety (typically due to their size). The canonical example here is
+        # the Parts Library.
+        self.zip_url = ""
+
+        # True for Addons that are large enough that downloading all of them for every update is
+        # expensive, so git is used for them whenever it is available. Set by the Addon Index.
+        self.prefer_git = False
+
         self.branch = branch.strip()
         self.branch_display_name = branch.strip()
         self.repo_type = Addon.Kind.WORKBENCH
@@ -329,7 +339,7 @@ class Addon:
                 fci.Console.PrintWarning(
                     "An invalid or corrupted package.xml file was found in the cache for"
                 )
-                fci.Console.PrintWarning(f" {self.name}... ignoring the bad data.\n")
+                fci.Console.PrintWarning(f" {self.name}… ignoring the bad data.\n")
                 return
             self.set_metadata(metadata)
             self._clean_url()
@@ -348,7 +358,7 @@ class Addon:
                 fci.Console.PrintWarning(
                     "An invalid or corrupted package.xml file was found in installation of"
                 )
-                fci.Console.PrintWarning(f" {self.name}... ignoring the bad data.\n")
+                fci.Console.PrintWarning(f" {self.name}… ignoring the bad data.\n")
                 return
 
     def set_metadata(self, metadata: Metadata) -> None:
@@ -688,7 +698,9 @@ class Addon:
         return ""
 
     def get_zip_url(self) -> str:
-        if self.url.endswith(".zip"):
+        if self.zip_url:
+            zip_url = self.zip_url
+        elif self.url.endswith(".zip"):
             zip_url = self.url
         else:
             # The ZIP url is based on the location of the main cache file:
@@ -835,7 +847,7 @@ class MissingDependencies:
         # can do the check by PyPI package name:
         if importlib_metadata is None:
             fci.Console.PrintMessage(
-                f"Cannot check for installation of `{package_name}`... marking it for "
+                f"Cannot check for installation of `{package_name}`… marking it for "
                 "reinstallation to be safe\n"
             )
             return False
