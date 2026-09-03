@@ -23,43 +23,40 @@
 Intended to be run by a server-side systemd timer to generate a file that is then loaded by the
 Addon Manager in each FreeCAD installation."""
 
-import datetime
-import shutil
-import sys
-from dataclasses import is_dataclass, fields
-from typing import Any, List, Optional, Dict, Set, Tuple
-
 import base64
+import datetime
 import enum
 import hashlib
 import io
 import json
 import os
 import re
-import requests
-import time
-import traceback
+import shutil
 
 # Audited: all subprocess calls in this module are fixed git argument lists run with no shell;
 # the variable arguments (url, branch, name) come from the addon index this tool exists to
 # process (added nosec B404, and B603/B607 at the call sites)
 import subprocess  # nosec B404
-from typing import List
+import sys
+import time
+import traceback
+import zipfile
+from dataclasses import fields, is_dataclass
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # Audited: only the exception class is imported, for catching errors raised by defusedxml,
 # which re-exports this same class. All parsing is done by defusedxml. (added nosec B405)
 from xml.etree.ElementTree import ParseError as XmlParseError  # nosec B405
 
+import requests
 from defusedxml import DefusedXmlException
-import zipfile
+from scour import scour
 
 import AddonCatalog
+import addonmanager_icon_utilities as icon_utils
 import addonmanager_metadata
 import addonmanager_utilities as utils
-import addonmanager_icon_utilities as icon_utils
-
-from scour import scour
-from types import SimpleNamespace
 
 ADDON_CATALOG_URL = "https://raw.githubusercontent.com/FreeCAD/Addons/main/Data/Index.json"
 BASE_DIRECTORY = "./CatalogCache"
@@ -134,10 +131,8 @@ class CacheWriter:
         self._previously_failed_addon_ids: Set[str] = set()
 
     def _load_previously_failed_addon_ids(self) -> Set[str]:
-        """Read the previous run's clone_errors.json, if any, and return the set of addon IDs
-        that failed to clone/update or download, so this run retries them first. This is
-        deliberately based only on the immediately preceding run: an addon that succeeds this
-        time drops out of the priority set next time, and one that fails again stays in it."""
+        """If any previous clone errors are found, return the set of addon IDs
+        that failed to clone/update or download."""
         path = os.path.join(self.cwd, "clone_errors.json")
         if not os.path.isfile(path):
             return set()
@@ -556,10 +551,9 @@ class CacheWriter:
 
     @staticmethod
     def _tail(text: object, limit: int = 2000) -> str:
-        """Return the trailing portion of some captured subprocess output, if text actually
-        holds any (a mock in a test, or a process that produced no output, do not), bounded so
-        that one addon's error can't bloat the shipped cache. The end of the text is kept
-        because that's where git and pip put their actual "fatal: ..." error line."""
+        """Return the trailing portion of some text so that one addon's error can't
+        bloat the shipped cache. The end of the text is kept because that's where
+        git and pip put their actual "fatal: ..." error line."""
         if not isinstance(text, str) or not text.strip():
             return ""
         stripped = text.strip()
@@ -567,15 +561,7 @@ class CacheWriter:
 
     def clone_with_retries(self, url: str, branch: str, target_dir: str) -> None:
         """Attempt a shallow 'git clone' of url/branch into target_dir, retrying up to
-        MAX_ATTEMPTS times with a short delay in between. A timeout and a non-zero exit code
-        are treated identically: git's exit code doesn't reliably distinguish a transient
-        network blip from a permanent error, and retrying a permanent failure a couple of extra
-        times is cheap for an unattended job. Before every attempt, any pre-existing target_dir
-        is removed, since git clone refuses to run into a non-empty directory and a partial
-        checkout can be left behind by a killed or timed-out previous attempt. Raises
-        RuntimeError (with git's own stderr appended, if any was captured) if every attempt
-        fails; deliberately does not touch self.clone_errors, since callers use this helper for
-        two different targets that need different keys."""
+        MAX_ATTEMPTS times."""
         # Shallow, but do include the last commit on each branch and tag
         command = ["git", "clone", "--depth", "1", "--branch", branch, url, target_dir]
         last_error_message = "unknown error"
