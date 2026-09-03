@@ -287,12 +287,8 @@ class TestCacheWriter(TestCase):
         writer = accc.CacheWriter()
         self.assertFalse(writer.should_use_sparse_clone("SomeNormalAddon", ace))
 
-    @patch(
-        "AddonCatalogCacheCreator.CacheWriter.create_local_copy_of_single_addon_with_git_sparse"
-    )
-    def test_create_local_copy_of_single_addon_using_sparse_clone(
-        self, mock_create_with_sparse
-    ):
+    @patch("AddonCatalogCacheCreator.CacheWriter.create_local_copy_of_single_addon_with_git_sparse")
+    def test_create_local_copy_of_single_addon_using_sparse_clone(self, mock_create_with_sparse):
         """An entry that asks for a sparse cache is fetched with a sparse clone, and is marked so
         that clients know that only part of it is cached."""
         catalog_entries = [
@@ -314,12 +310,8 @@ class TestCacheWriter(TestCase):
         self.assertEqual(1, mock_create_with_sparse.call_count)
         self.assertTrue(catalog_entries[0].sparse_cache)
 
-    @patch(
-        "AddonCatalogCacheCreator.CacheWriter.create_local_copy_of_single_addon_with_git"
-    )
-    @patch(
-        "AddonCatalogCacheCreator.CacheWriter.create_local_copy_of_single_addon_with_git_sparse"
-    )
+    @patch("AddonCatalogCacheCreator.CacheWriter.create_local_copy_of_single_addon_with_git")
+    @patch("AddonCatalogCacheCreator.CacheWriter.create_local_copy_of_single_addon_with_git_sparse")
     def test_create_local_copy_of_single_addon_with_impossible_sparse_clone(
         self, mock_create_with_sparse, mock_create_with_git
     ):
@@ -344,9 +336,7 @@ class TestCacheWriter(TestCase):
         self.assertEqual(1, mock_create_with_git.call_count)
         self.assertFalse(catalog_entries[0].sparse_cache)
 
-    @patch(
-        "AddonCatalogCacheCreator.CacheWriter.create_local_copy_of_single_addon_with_git"
-    )
+    @patch("AddonCatalogCacheCreator.CacheWriter.create_local_copy_of_single_addon_with_git")
     def test_create_local_copy_of_single_addon_using_git(self, mock_create_with_git):
         """Given a single addon, each catalog entry is fetched with git if git info is available."""
         catalog_entries = [
@@ -370,12 +360,8 @@ class TestCacheWriter(TestCase):
         writer.create_local_copy_of_single_addon("TestMod", catalog_entries)
         self.assertEqual(mock_create_with_git.call_count, 3)
 
-    @patch(
-        "AddonCatalogCacheCreator.CacheWriter.create_local_copy_of_single_addon_with_git"
-    )
-    @patch(
-        "AddonCatalogCacheCreator.CacheWriter.create_local_copy_of_single_addon_with_zip"
-    )
+    @patch("AddonCatalogCacheCreator.CacheWriter.create_local_copy_of_single_addon_with_git")
+    @patch("AddonCatalogCacheCreator.CacheWriter.create_local_copy_of_single_addon_with_zip")
     def test_create_local_copy_of_single_addon_using_zip(
         self, mock_create_with_zip, mock_create_with_git
     ):
@@ -457,12 +443,8 @@ class TestCacheWriter(TestCase):
         writer.catalog = MockCatalog()
         writer._previously_failed_addon_ids = {"TestMod3"}
         writer.create_local_copy_of_addons()
-        processed_order = [
-            call.args[0] for call in mock_create_single_addon.call_args_list
-        ]
-        self.assertEqual(
-            ["TestMod3", "TestMod1", "TestMod2", "TestMod4"], processed_order
-        )
+        processed_order = [call.args[0] for call in mock_create_single_addon.call_args_list]
+        self.assertEqual(["TestMod3", "TestMod1", "TestMod2", "TestMod4"], processed_order)
 
 
 class TestCacheWriterGitUpdate(TestCase):
@@ -559,9 +541,7 @@ class TestCacheWriterGitUpdate(TestCase):
 
     @patch("AddonCatalogCacheCreator.time.sleep")
     @patch("AddonCatalogCacheCreator.subprocess.run")
-    def test_clone_or_update_raises_after_exhausting_clone_attempts(
-        self, mock_run, mock_sleep
-    ):
+    def test_clone_or_update_raises_after_exhausting_clone_attempts(self, mock_run, mock_sleep):
         """If every attempt fails, the caller is told, with a reason recorded for this addon."""
         mock_run.return_value.returncode = 1
         writer = accc.CacheWriter()
@@ -578,9 +558,7 @@ class TestCacheWriterGitUpdate(TestCase):
     ):
         """A partial checkout left by an earlier killed attempt doesn't block a clean retry."""
         mock_run.return_value.returncode = 0
-        self.fake_fs().create_dir(
-            os.path.join(os.getcwd(), "TestMod", "partial-checkout")
-        )
+        self.fake_fs().create_dir(os.path.join(os.getcwd(), "TestMod", "partial-checkout"))
         writer = accc.CacheWriter()
         writer.clone_or_update("TestMod", "https://some.url", "main")
         mock_rmdir.assert_any_call("TestMod")
@@ -641,9 +619,7 @@ class TestCacheWriterGitUpdate(TestCase):
     ):
         """If the fallback re-clone also fails, the existing good copy is left exactly as-is."""
         mock_fetch_and_reset.side_effect = RuntimeError("persistent failure")
-        mock_run.return_value.returncode = (
-            1  # The fallback re-clone fails every attempt too.
-        )
+        mock_run.return_value.returncode = 1  # The fallback re-clone fails every attempt too.
         clone_path = os.path.join(os.getcwd(), "TestMod")
         self.fake_fs().create_file(
             os.path.join(clone_path, ".git", "HEAD"), contents="ref: refs/heads/main\n"
@@ -670,9 +646,7 @@ class TestCacheWriterGitUpdate(TestCase):
         writer = accc.CacheWriter()
         writer.sparse_clone("TestMod", "https://some.url", "main", ["package.xml"])
         commands = self.issued_commands(mock_run)
-        self.assertEqual(
-            ["git", "fetch", "--force", "--depth=1", "origin", "main"], commands[0]
-        )
+        self.assertEqual(["git", "fetch", "--force", "--depth=1", "origin", "main"], commands[0])
         self.assertIn(["git", "reset", "--hard", "FETCH_HEAD", "--quiet"], commands)
         self.assertEqual({}, writer.clone_errors)
 
@@ -680,9 +654,7 @@ class TestCacheWriterGitUpdate(TestCase):
     def test_add_to_sparse_clone_checks_out_without_network_access(self, mock_run):
         """New sparse checkout entries are taken from the commit that is already local."""
         mock_run.return_value.returncode = 0
-        sparse_file = os.path.join(
-            os.getcwd(), "TestMod", ".git", "info", "sparse-checkout"
-        )
+        sparse_file = os.path.join(os.getcwd(), "TestMod", ".git", "info", "sparse-checkout")
         self.fake_fs().create_file(sparse_file, contents="package.xml\n")
         writer = accc.CacheWriter()
         writer.add_to_sparse_clone("TestMod", ["icon.svg"])
